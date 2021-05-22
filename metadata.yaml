@@ -37,14 +37,23 @@ authors:
 copyright: "2021, Association of Universities for Research in Astronomy, Inc. (AURA)"
 
 # Description. A short, 1-2 sentence statemement used by document indices.
-description: "Presents a threat model and web security design for the Science Platform. Recommends approaches for the authorization system and aspect configuration to limit the risk of web security vulnerabilities."
+description: >-
+  Presents a threat model and web security design for the Science
+  Platform. Recommends approaches for the authorization system and aspect
+  configuration to limit the risk of web security vulnerabilities.
 
 # Abstract, if available
-# abstract: >
-#           Write your paragraph
-#           here with multiple lines.
-#
-#           You can have multiple paragraphs too.
+abstract: >-
+  The Rubin Science Platform consists of a set of services accessed via HTTP
+  with a shared authentication and security layer. The underlying applications
+  will come from various sources and be written by teams with varying levels
+  of knowledge of web security defenses. It also includes the Notebook Aspect,
+  which is arbitrary code execution as a service and thus poses unique
+  security challenges. This document proposes a threat model for thinking
+  about web security for the Rubin Science Platform as a whole and discusses
+  design approaches and mitigations to maximize the effective security of the
+  overall platform without assuming detailed security design of each
+  component.
 
 # URL where this document is published by Read the Docs. e.g. http://sqr-001.lsst.codes
 url: "https://dmtn-193.lsst.io"
