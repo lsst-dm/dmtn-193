@@ -132,6 +132,8 @@ The necessary configuration can be fairly complex, including:
 - If not redirecting the user, whether to present a bearer challenge or a basic auth challenge (the UI of some applications may prefer a basic auth challenge to make ad hoc API calls via a web browser easier)
 - Which user metadata headers to send back to the application
 - Whether to put the delegated token in an ``Authorization`` header
+- Whether to allow cookie authentication
+- Whether to prohibit ``POST`` with form submission ``Content-Type`` values
 
 This can all be managed with manually-written NGINX ingress annotations with each service, with many of the parameters embedded in the ``auth-url`` URL, but this is tedious and error-prone.
 
@@ -180,7 +182,7 @@ Having all Science Platform REST APIs share the same origin is useful for docume
 Therefore, the isolation plan for the Rubin Science Platform is:
 
 - Serve the Notebook Aspect spawning interface from its own origin
-- Serve each user's notebook from a per-user origin (see `jupyterlab-origin`_)
+- Serve each user's notebook from a per-user origin (see :ref:`jupyterlab-origin`)
 - Serve the Portal Aspect from its own origin
 - Serve the authentication system from its own origin
 - Serve all APIs from a single origin shared by the APIs, but separate from the other origins
@@ -198,3 +200,152 @@ We will follow this recommendation.
 
 This will require serving notebooks using a wildcard certificate.
 The plan is to use a wildcard certificate from Let's Encrypt, using the DNS solver to authenticate.
+
+CSRF protection
+===============
+
+The most common cause of :abbr:`CSRF (Cross-Site Request Forgery)` problems is the complexity of the browser security model.
+When a user visits a web page with a web browser, that page may load JavaScript to execute in the user's browser.
+That JavaScript code is allowed to make additional HTTP requests, which are then performed by the user's browser as well.
+By default, no credentials (cookies or headers) are included in those requests.
+However, the JavaScript code can ask that the HTTP request be made with credentials.
+In this case, the browser will include the user's cookies for the *destination* site in the request, even if the JavaScript making the request has no access to read those cookies.
+
+Summary of security model
+-------------------------
+
+The rules for what happens during JavaScript requests are very complex and have evolved over time.
+There are two parts to the security model: whether the browser will immediately send the request to the remote site or instead send an ``OPTIONS`` request first (this is called a *CORS preflight*), and whether the JavaScript initiating the request can see the response.
+Here is a brief and incomplete summary of the rules:
+
+#. All requests to the same origin are allowed and will not trigger a CORS preflight check.
+   This is a key part of why it is not possible to defend web services against JavaScript served from the same origin.
+
+#. Requests to a different origin will trigger a CORS preflight check *unless* all of the following conditions are true (plus some other, less relevant ones):
+   - The request is a ``GET``, ``HEAD``, or ``POST``
+   - The request does not send headers other than ``Accept``, ``Accept-Language``, ``Content-Language``, and ``Content-Type``
+   - The ``Content-Type`` header, if set, is one of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
+
+#. If a CORS preflight check is triggered, the request will only be allowed if the server returns success to the ``OPTIONS`` call and includes appropriate headers allowing this remote origin.
+
+#. If the request is made with credentials, it may be sent without a CORS preflight check if it meets the above criteria.
+   However, unless the response from the server includes an ``Access-Control-Allow-Credentials: true`` header, the response will be rejected and will not be accessible to the JavaScript code making the request.
+
+See `Cross-Origin Resource Sharing on MDN`_ for a good high-level summary and the the `Fetch specification`_ for all of the details.
+
+In most cases, the Rubin Science Platform does not need to support cross-origin requests.
+When different components need to talk to each other, those requests are normally made by the server, not by JavaScript executed in the web browser.
+Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in ref:`notebook-portal`.
+
+Application design
+------------------
+
+Where possible, Rubin Science Platform applications should not support cross-origin requests.
+Doing so securely will require substantial additional effort, so if the same need can be met by making the request from the server using a delegated token, that approach is preferred.
+
+Applications must follow the standard web application conventions of using appropriate HTTP verbs based on whether a request may change state.
+In particular, ``GET`` must be reserved for read-only requests, and all requests that modify data or otherwise change state must use ``POST`` or another appropriate verb.
+
+Unless required by a protocol that the application needs to implement, only applications indended for use via a web browser should accept ``POST`` with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
+APIs should instead require the body of a ``POST`` have a declared content type of ``application/json``, ``text/xml``, or some other value.
+(In other words, the typical REST API should require JSON or XML request bodies and not support form-encoded request bodies.)
+This forces a CORS preflight check for cross-origin ``POST`` requests, avoiding the problem where a ``POST`` from malicious JavaScript is sent with credentials and has an effect on the server even though the response is discarded by the web browser.
+
+Applications designed for use with a web browser that accept form submissions should use normal CSRF prevention techniques, such as the `synchronizer token pattern`_:
+
+.. _synchronizer token pattern: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#synchronizer-token-pattern
+
+Applications should respond with an error to any ``OPTIONS`` requests so that CORS preflight checks will always fail, with the exception of the Portal Aspect (see :ref:`notebook-portal`).
+
+Authentication methods
+----------------------
+
+In general, users will authenticate to browser-based applications using a cookie and to APIs using an ``Authorization`` header.
+However, since the authentication layer is shared, it supports both authentication mechanisms.
+This can be useful for dual-purpose APIs used both via React browser UIs and via direct API calls, and for some cases where one may want to allow a service or other non-browser client to make authenticated requests to an application that is normally used within a web browser.
+However, it increases the risk of CSRF because including an ``Authorization`` header in a request always forces a CORS preflight check, but asking for cookies to be included does not.
+
+Therefore, the authentication layer will support configuration indicating whether a given application should support cookie authentication.
+This can be disabled for pure APIs that aren't intended to be used via a JavaScript frontend.
+When disabled, requests with cookies but no ``Authorization`` header will be denied by the authentication layer before reaching the application, providing defense in depth against problems with other CSRF protection mechanisms.
+
+APIs that are also used by JavaScript frontends will continue to allow cookie-based authentication.
+
+``Origin`` header
+-----------------
+
+If cookie authentication is used, the authentication layer will check for an ``Origin`` header sent with the request and ignore cookie authentication if that header is present, not null, and does not match the origin of the requested URL.
+The browser will add the ``Origin`` header automatically to cross-origin (and some same-origin) requets, and it cannot be disabled in JavaScript.
+This effectively disables cookie authentication for cross-site requests in browsers that support ``Origin``, although the above explicit configuration should also be used for defense in depth.
+
+.. _notebook-portal:
+
+Notebook Aspect to Portal Aspect calls
+--------------------------------------
+
+The exception to the general rule that the Rubin Science Platform does not need to support cross-origin requests is that the Notebook Aspect uses client-side JavaScript to display images from the Portal Aspect inside the Notebook Aspect UI.
+As described in :ref:`jupyterlab-origin`, each Notebook Aspect user instance will run in its own origin, so this is a cross-origin request.
+Furthermore, it is a cross-origin request without a simple list of allowed origins, since the origin for the Notebook Aspect is dynamic (based on the username).
+
+The Portal Aspect therefore must reply to the ``OPTIONS`` request sent as the CORS preflight check by checking the ``Origin`` header to see if it matches the expected pattern of a Notebook Aspect user notebook origin.
+If so, it must respond with success, coping the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
+If the origin doesn't match a Notebook Aspect user notebook origin from the same instance, it should reply with an error.
+
+Similarly, when replying to the subsequent actual request, the Portal Aspect must include ``Access-Control-Allow-Credentials: true`` in the response headers.
+
+Unfortunately, this cannot be done in the generic authentication layer because the NGINX ingress doesn't support intercepting and delegating ``OPTIONS`` requests, and it cannot be done directly in the ingress because the NGINX ingress CORS support doesn't support dynamic validation of origins.
+It will therefore need to be done in the Portal Aspect code itself.
+
+XSS protection
+==============
+
+Cross-site scriptiong (XSS) is, in simplified terms, a security vulnerability that allows injecting untrusted content into web pages that are rendered by a browser.
+If an attacker can arrange to run JavaScript (or even CSS) in a target user's browser in the context of a site to which that user is authenticated, the attacker can potentially take actions on behalf of the user, steal the user's data, or steal credentials for later use.
+
+The primary defense against XSS is secure programming practices in the individual applications, such as use of HTML frameworks and libraries that automatically escape untrusted content so that it will not be executed by a browser.
+However, there are some protections that can be added at the infrastructure level to prevent some categories of XSS.
+This is done via the ``Content-Security-Policy`` header, which, if present in the headers of an HTML response from a web server, specifies restrictions on what that page can do.
+This can include restricting what JavaScript it will execute and what CSS it will apply.
+
+The ideal content security policy disables all loading of JavaScript, images, CSS, and fonts except from the same origin and known trusted origins (such as CDNs), and then requires subresource integrity be used for every resource that is loaded.
+Subresource integrity means that each reference to an external object in the HTML, such as a JavaScript script, CSS style sheet, or image, is accompanied with the hash of the expected resource.
+The browser will then reject the loaded resource and not execute it if it doesn't match the hash.
+
+Using this restrictive of a policy requires a considerable amount of work for the application.
+Many applications are unfortunately not designed to allow for a restrictive policy.
+However, some policies can be applied more broadly as long as applications avoid some insecure HTML construction patterns.
+
+Application design
+------------------
+
+Rubin Science Platform applications ideally should attempt to use the full restrictive policy as described above.
+However, failing that, they should at least be designed to avoid inline JavaScript and inline styles.
+Inline objects are the easiest to construct in an XSS attack, so blocking them makes XSS attacks considerably more difficult.
+
+Applications should then add the following header to their responses::
+
+    Content-Security-Policy: default-src https:
+
+which will require all resources be loaded via HTTPS and disable unsafe inline objects of any type.
+
+If the application serves all of its own resources and does not load resources from any external site, it should send this stronger header instead::
+
+    Content-Security-Policy: default-src 'self'
+
+If it does not use JavaScript at all, it can disable loading JavaScript with::
+
+    Content-Security-Policy: default-src 'self'; script-src 'none'
+
+Many other variations are possible; see `Content Security Policy`_ for more information.
+In general, an application should disable as many types of resources as possible.
+If it isn't using a type of resource, turning it off means it's not available as a potential vector of XSS.
+
+.. _Content Security Policy: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+
+Adding CSP via the ingress
+--------------------------
+
+When the application is written internally by Rubin Observatory, there is no reson not to have it send its own ``Content-Security-Policy`` header.
+However, sometimes we may deploy externally-written applications that can use a more restrictive content security policy but for whatever reason do not send the header.
+
+For those applications, we will add a ``Content-Security-Policy`` header to all responses via the NGINX ingress configuration.
