@@ -71,7 +71,7 @@ The expected goals of an attacker targeting the Science Platform are primarily t
 - Theft of compute resources (Bitcoin mining, bot networks)
 - Extortion via ransomware (CryptoLocker)
 - Web site hosting for further phishing or malware distribution
-- Exfiltration of confidential data (of which there is very little on the Rubin Science Platform)
+- Theft of valuable personal data (of which there is very little on the Rubin Science Platform)
 
 The observatory data accessible via the Science Platform, while not all public, is of limited financial or strategic value to sophisticated attackers.
 While the Science Platform will hold some limited personal information for its users, it will not contain stores of valuable personal or commercial data.
@@ -188,6 +188,11 @@ Therefore, the isolation plan for the Rubin Science Platform is:
 - Serve the authentication system from its own origin
 - Serve all APIs from a single origin shared by the APIs, but separate from the other origins
 
+Pure APIs (ones that are not part of a web browser UI and do not serve any JavaScript, CSS, or other similar content) can share a single origin as long as it is separate from all UI origins.
+This is true even if some of the API backend servers are untrusted.
+No JavaScript will run from that origin, so there is no risk of same-origin attacks even between untrusted API backend servers.
+We will hide incoming credentials from the backend servers and disable cookie authentication to such APIs, so there is also no need to put them in separate origins for credential management purposes.
+
 This approach will require some additional complexity in the authentication process to transfer cookie-based web browser credentials from one origin to another.
 See `SQR-051`_ for additional details.
 
@@ -237,7 +242,7 @@ See `Cross-Origin Resource Sharing on MDN`_ for a good high-level summary and th
 
 In most cases, the Rubin Science Platform does not need to support cross-origin requests.
 When different components need to talk to each other, those requests are normally made by the server, not by JavaScript executed in the web browser.
-Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in ref:`notebook-portal`.
+Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in :ref:`notebook-portal`.
 
 Application design
 ------------------
