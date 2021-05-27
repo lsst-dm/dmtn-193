@@ -56,7 +56,7 @@ Glossary
 
 Cross-site request forgery (CSRF)
     An attack that tricks the user into sending a malicious request on the attacker's behalf.
-    The most obvious mechanism to do this is cross-site GET or POST requests triggered by JavaScript run on a malicious site to which the user went in a web browser, although there are other mechanisms.
+    The most obvious mechanism to do this is cross-site ``GET`` or ``POST`` requests triggered by JavaScript run on a malicious site to which the user went in a web browser, although there are other mechanisms.
     CSRF generally exploits the browser's security model to trick the browser into sending credentials that it has stored for its user (such as cookies) along with a request that is controlled by the attacker.
 
 Cross-site scripting (XSS)
@@ -127,13 +127,14 @@ The necessary configuration can be fairly complex, including:
 - The required scopes to allow access
 - Whether to create a delegated token for this user
 - The scopes of the delegated token, if created
-- Whether this is the notebook service (which gets some special token handling)
+- Whether this is the notebook service (which requires some special token handling)
 - Where (and if) to redirect the user to authenticate if they are not authenticated
 - If not redirecting the user, whether to present a bearer challenge or a basic auth challenge (the UI of some applications may prefer a basic auth challenge to make ad hoc API calls via a web browser easier)
-- Which user metadata headers to send back to the application
+- Which user metadata headers to send to the application
 - Whether to put the delegated token in an ``Authorization`` header
 - Whether to allow cookie authentication
 - Whether to prohibit ``POST`` with form submission ``Content-Type`` values
+- What ``Content-Security-Policy`` header to add, if any
 
 This can all be managed with manually-written NGINX ingress annotations with each service, with many of the parameters embedded in the ``auth-url`` URL, but this is tedious and error-prone.
 
@@ -222,6 +223,7 @@ Here is a brief and incomplete summary of the rules:
    This is a key part of why it is not possible to defend web services against JavaScript served from the same origin.
 
 #. Requests to a different origin will trigger a CORS preflight check *unless* all of the following conditions are true (plus some other, less relevant ones):
+
    - The request is a ``GET``, ``HEAD``, or ``POST``
    - The request does not send headers other than ``Accept``, ``Accept-Language``, ``Content-Language``, and ``Content-Type``
    - The ``Content-Type`` header, if set, is one of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
@@ -277,6 +279,14 @@ APIs that are also used by JavaScript frontends will continue to allow cookie-ba
 If cookie authentication is used, the authentication layer will check for an ``Origin`` header sent with the request and ignore cookie authentication if that header is present, not null, and does not match the origin of the requested URL.
 The browser will add the ``Origin`` header automatically to cross-origin (and some same-origin) requets, and it cannot be disabled in JavaScript.
 This effectively disables cookie authentication for cross-site requests in browsers that support ``Origin``, although the above explicit configuration should also be used for defense in depth.
+
+``POST`` content type
+---------------------
+
+Applications that do not intend to support form submission do not need to accept the ``POST`` requests that avoid CORS preflight checks (ones with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
+We can therefore reject such requests at the generic authentication layer and prevent them from ever reaching the application.
+This relieves the application of having to check the ``Content-Type`` of the ``POST`` body and protects against overly-helpful framework libraries that may attempt to interpret ``POST`` bodies of the wrong content type.
+This will be an optional per-application configuration option.
 
 .. _notebook-portal:
 
@@ -349,3 +359,25 @@ When the application is written internally by Rubin Observatory, there is no res
 However, sometimes we may deploy externally-written applications that can use a more restrictive content security policy but for whatever reason do not send the header.
 
 For those applications, we will add a ``Content-Security-Policy`` header to all responses via the NGINX ingress configuration.
+
+Implementation status
+=====================
+
+**Last updated: May 26, 2021**
+
+Implemented:
+
+- Scope-based access control via a generic authentication service
+- Logging of all authenticated access
+
+Not yet implemented:
+
+- ``Ingress`` configuration via a custom resource and controller
+- Credential isolation for ``Cookie`` or ``Authorization`` headers
+- Separation of Science Platform applications into their own origins
+- Per-user origins for Notebook Aspect user notebooks
+- Configuration specifying whether to allow cookie authentication
+- Disable cookie authentication for cross-origin requests
+- Restrict content type of ``POST`` requests
+- Cross-site security configuration for Notebook to Portal Aspect calls
+- Adding ``Content-Security-Policy`` headers via the ingress
