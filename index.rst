@@ -240,6 +240,9 @@ Here is a brief and incomplete summary of the rules:
 
 See `Cross-Origin Resource Sharing on MDN`_ for a good high-level summary and the the `Fetch specification`_ for all of the details.
 
+.. _Cross-Origin Resource Sharing on MDN: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
+.. _Fetch specification: https://fetch.spec.whatwg.org/
+
 In most cases, the Rubin Science Platform does not need to support cross-origin requests.
 When different components need to talk to each other, those requests are normally made by the server, not by JavaScript executed in the web browser.
 Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in :ref:`notebook-portal`.
