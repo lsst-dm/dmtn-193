@@ -116,6 +116,46 @@ Each meaningful domain of access must be assigned a unique scope in the configur
 This needs to capture not only the granularity of user access permissions (for example, whether a given user is allowed to access a specific application), but also the granularity of service-to-service API calls.
 Restricting the scope of delegated tokens passed to applications limits the damage that can be done by a compromised application.
 
+Credential isolation
+--------------------
+
+The incoming request from a user may contain an access token in one of two places: an encrypted cookie that is read by Gafaelfawr, or in the ``Authorization`` header.
+Because the underlying application should not be fully trusted, we do not want to pass the incoming cookie or token directly to the application, since this would allow a compromised application to act as the user with the full scope of the original cookie (which may have that user's full scope of access).
+The incoming authentication credential must be filtered out of the request before it is passed to the backend service.
+
+For backend services that need to make calls on behalf of the user, a new token specific to that service will be issued dynamically, with only the scopes that service needs, and passed to the service via an HTTP header.
+
+For options on how to implement this, and some further discussion, see `SQR-051`_.
+The recommended approach is to filter out incoming cookies by replacing the ``Cookie`` header with a rewritten header and replacing or dropping the ``Authorization`` header.
+
+.. _SQR-051: https://sqr-051.lsst.io/
+
+Unauthenticated and optionally authenticated routes
+---------------------------------------------------
+
+Some services will want to expose unauthenticated routes.
+Virtual Observatory status routes, for example, do not require authentication.
+Such routes can use an ``Ingress`` configuration that bypasses the generic authentication layer, but should still prevent user credentials from being passed to the backend service if they are called by an authenticated user.
+In the simple case, this can be done by dropping the ``Cookie`` and ``Authorization`` headers in the ``Ingress`` using the following annotation:
+
+.. code-block:: yaml
+
+   nginx.ingress.kubernetes.io/configuration-snippet: |
+     proxy_set_header Authorization "";
+     proxy_set_header Cookie "";
+
+If the unauthenticated backend uses cookies for some other purpose, this becomes more complex, since only the authentication cookie should be stripped.
+If we have this use case, we will implement an unauthenticated mode for the generic authentication service that allows all requests but still performs ``Cookie`` header rewriting.
+
+Currently, the generic authentication layer does not support optionally authenticated routes: ones where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
+This can be added if that use case arises.
+
+Logging
+-------
+
+Because authentication and access control is done via a generic layer in front of all applications, it can log all authenticated operations and maintain data about how tokens are used.
+This, in turn, will be used to investigate possible security incidents and to look for anomolies in how tokens are used (such as use from an unexpected IP address).
+
 Configuration
 -------------
 
@@ -140,26 +180,6 @@ This can all be managed with manually-written NGINX ingress annotations with eac
 
 We therefore plan to implement a custom Kubernetes resource that specifies a Gafaelfawr-protected resource, and a custom resource controller that writes the ``Ingress`` resource based on that custom resource.
 This will allow the above information to be expressed in more human-readable YAML or derived from the cluster Gafaelfawr configuration.
-
-Credential isolation
---------------------
-
-The incoming request from a user may contain an access token in one of two places: an encrypted cookie that is read by Gafaelfawr, or in the ``Authorization`` header.
-Because the underlying application should not be fully trusted, we do not want to pass the incoming cookie or token directly to the application, since this would allow a compromised application to act as the user with the full scope of the original cookie (which may have that user's full scope of access).
-The incoming authentication credential must be filtered out of the request before it is passed to the backend service.
-
-For backend services that need to make calls on behalf of the user, a new token specific to that service will be issued dynamically, with only the scopes that service needs, and passed to the service via an HTTP header.
-
-For options on how to implement this, and some further discussion, see `SQR-051`_.
-The recommended approach is to filter out incoming cookies by replacing the ``Cookie`` header with a rewritten header and replacing or dropping the ``Authorization`` header.
-
-.. _SQR-051: https://sqr-051.lsst.io/
-
-Logging
--------
-
-Because authentication and access control is done via a generic layer in front of all applications, it can log all authenticated operations and maintain data about how tokens are used.
-This, in turn, will be used to investigate possible security incidents and to look for anomolies in how tokens are used (such as use from an unexpected IP address).
 
 Isolation
 =========
@@ -265,7 +285,9 @@ Applications designed for use with a web browser that accept form submissions sh
 
 .. _synchronizer token pattern: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#synchronizer-token-pattern
 
-Applications should respond with an error to any ``OPTIONS`` requests so that CORS preflight checks will always fail, with the exception of the Portal Aspect (see :ref:`notebook-portal`).
+Applications that do not intend to support cross-site requests should respond with an error to any ``OPTIONS`` requests so that CORS preflight checks will always fail.
+Applications that intend to provide routes usable by client-side JavaScript from other Rubin Science Platform UIs (such as the Portal Aspect's support for JavaScript use in the Notebook Aspect) will need to implement CORS internally.
+See :ref:`cors` for more information.
 
 Authentication methods
 ----------------------
@@ -296,23 +318,27 @@ We can therefore reject such requests at the generic authentication layer and pr
 This relieves the application of having to check the ``Content-Type`` of the ``POST`` body and protects against overly-helpful framework libraries that may attempt to interpret ``POST`` bodies of the wrong content type.
 This will be an optional per-application configuration option.
 
-.. _notebook-portal:
+.. _cors:
 
-Notebook Aspect to Portal Aspect calls
---------------------------------------
+Internal cross-origin requests
+------------------------------
 
-The exception to the general rule that the Rubin Science Platform does not need to support cross-origin requests is that the Notebook Aspect uses client-side JavaScript to display images from the Portal Aspect inside the Notebook Aspect UI.
+Some Rubin Science Platform applications may wish to provide APIs that can be used via JavaScript from other Science Platform applications.
+For example, the Notebook Aspect uses client-side JavaScript to display images from the Portal Aspect inside the Notebook Aspect UI.
 As described in :ref:`jupyterlab-origin`, each Notebook Aspect user instance will run in its own origin, so this is a cross-origin request.
 Furthermore, it is a cross-origin request without a simple list of allowed origins, since the origin for the Notebook Aspect is dynamic (based on the username).
+There will likely be other examples, with requests originating either from the Notebook Aspect or from other Science Platform UIs such as the top-level page.
 
-The Portal Aspect therefore must reply to the ``OPTIONS`` request sent as the CORS preflight check by checking the ``Origin`` header to see if it matches the expected pattern of a Notebook Aspect user notebook origin.
+Applications such as the Portal Aspect that need to satisfy these requests therefore must reply to the ``OPTIONS`` request sent as the CORS preflight check.
+This request should not be blindly successful.
+Rather, the application must check the ``Origin`` header to see if it matches the expected pattern of allowed origin, such as the pattern of a Notebook Aspect user notebook origin from the same Rubin Science Platform instance.
 If so, it must respond with success, coping the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
 If the origin doesn't match a Notebook Aspect user notebook origin from the same instance, it should reply with an error.
 
 Similarly, when replying to the subsequent actual request, the Portal Aspect must include ``Access-Control-Allow-Credentials: true`` in the response headers.
 
 Unfortunately, this cannot be done in the generic authentication layer because the NGINX ingress doesn't support intercepting and delegating ``OPTIONS`` requests, and it cannot be done directly in the ingress because the NGINX ingress CORS support doesn't support dynamic validation of origins.
-It will therefore need to be done in the Portal Aspect code itself.
+It will therefore need to be done in the code of the application that serves cross-origin requests.
 
 XSS protection
 ==============
@@ -380,8 +406,11 @@ Implemented:
 
 Not yet implemented:
 
-- ``Ingress`` configuration via a custom resource and controller
 - Credential isolation for ``Cookie`` or ``Authorization`` headers
+- Dropping ``Authorization`` headers for unauthenticated routes
+- Dropping or rewriting ``Cookie`` headers for unauthenticated routes
+- Support for optionally-authenticated routes
+- ``Ingress`` configuration via a custom resource and controller
 - Separation of Science Platform applications into their own origins
 - Per-user origins for Notebook Aspect user notebooks
 - Configuration specifying whether to allow cookie authentication
