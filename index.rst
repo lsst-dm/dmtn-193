@@ -307,7 +307,7 @@ APIs that are also used by JavaScript frontends will continue to allow cookie-ba
 -----------------
 
 If cookie authentication is used, the authentication layer will check for an ``Origin`` header sent with the request and ignore cookie authentication if that header is present, not null, and does not match the origin of the requested URL.
-The browser will add the ``Origin`` header automatically to cross-origin (and some same-origin) requets, and it cannot be disabled in JavaScript.
+The browser will add the ``Origin`` header automatically to cross-origin (and some same-origin) requests, and it cannot be disabled in JavaScript.
 This effectively disables cookie authentication for cross-site requests in browsers that support ``Origin``, although the above explicit configuration should also be used for defense in depth.
 
 ``POST`` content type
