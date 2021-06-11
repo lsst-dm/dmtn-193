@@ -276,7 +276,7 @@ Doing so securely will require substantial additional effort, so if the same nee
 Applications must follow the standard web application conventions of using appropriate HTTP verbs based on whether a request may change state.
 In particular, ``GET`` must be reserved for read-only requests, and all requests that modify data or otherwise change state must use ``POST`` or another appropriate verb.
 
-Unless required by a protocol that the application needs to implement, only applications indended for use via a web browser should accept ``POST`` with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
+Unless required by a protocol that the application needs to implement, only applications intended for use via a web browser should accept ``POST`` with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
 APIs should instead require the body of a ``POST`` have a declared content type of ``application/json``, ``text/xml``, or some other value.
 (In other words, the typical REST API should require JSON or XML request bodies and not support form-encoded request bodies.)
 This forces a CORS preflight check for cross-origin ``POST`` requests, avoiding the problem where a ``POST`` from malicious JavaScript is sent with credentials and has an effect on the server even though the response is discarded by the web browser.
