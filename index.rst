@@ -206,6 +206,9 @@ Therefore, the isolation plan for the Rubin Science Platform is:
 - Serve each user's notebook from a per-user origin (see :ref:`jupyterlab-origin`)
 - Serve the Portal Aspect from its own origin
 - Serve the authentication system from its own origin
+- Serve APIs that may return raw user-controlled content (such as a service for users to retrieve files from their home directory) from their own origins.
+  This origin should add a restrictive ``Content-Security-Policy``.
+  See :ref:`user-content-csp` for more details.
 - Serve all APIs from a single origin shared by the APIs, but separate from the other origins
 
 Pure APIs (ones that are not part of a web browser UI and do not serve any JavaScript, CSS, or other similar content) can share a single origin as long as it is separate from all UI origins.
@@ -394,10 +397,21 @@ However, sometimes we may deploy externally-written applications that can use a 
 
 For those applications, we will add a ``Content-Security-Policy`` header to all responses via the NGINX ingress configuration.
 
+.. _user-content-csp:
+
+User-controlled content
+-----------------------
+
+Services that return user-controlled content, such as files from a user's home directory, should set a maximally restrictive ``Content-Security-Policy`` on those responses::
+
+    Content-Security-Policy: default-src 'none'; sandbox
+
+This can be done either in the application or by the NGINX ingress configuration.
+
 Implementation status
 =====================
 
-**Last updated: May 26, 2021**
+**Last updated: June 11, 2021**
 
 Implemented:
 
@@ -418,3 +432,4 @@ Not yet implemented:
 - Restrict content type of ``POST`` requests
 - Cross-site security configuration for Notebook to Portal Aspect calls
 - Adding ``Content-Security-Policy`` headers via the ingress
+- Adding ``Content-Seucrity-Policy`` headers to any endpoint that returns raw user-controlled content.
