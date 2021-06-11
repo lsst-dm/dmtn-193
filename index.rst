@@ -154,7 +154,7 @@ Logging
 -------
 
 Because authentication and access control is done via a generic layer in front of all applications, it can log all authenticated operations and maintain data about how tokens are used.
-This, in turn, will be used to investigate possible security incidents and to look for anomolies in how tokens are used (such as use from an unexpected IP address).
+This, in turn, will be used to investigate possible security incidents and to look for anomalies in how tokens are used (such as use from an unexpected IP address).
 
 Configuration
 -------------
