@@ -14,7 +14,8 @@ Web security for the Science Platform
 DMTN-193
 ========
 
-Presents a threat model and web security design for the Science Platform. Recommends approaches for the authorization system and aspect configuration to limit the risk of web security vulnerabilities.
+Presents a threat model and web security design for the Science Platform.
+Recommends approaches for the authorization system and aspect configuration to limit the risk of web security vulnerabilities.
 
 **Links:**
 
