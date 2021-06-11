@@ -389,7 +389,7 @@ If it isn't using a type of resource, turning it off means it's not available as
 Adding CSP via the ingress
 --------------------------
 
-When the application is written internally by Rubin Observatory, there is no reson not to have it send its own ``Content-Security-Policy`` header.
+When the application is written internally by Rubin Observatory, there is no reason not to have it send its own ``Content-Security-Policy`` header.
 However, sometimes we may deploy externally-written applications that can use a more restrictive content security policy but for whatever reason do not send the header.
 
 For those applications, we will add a ``Content-Security-Policy`` header to all responses via the NGINX ingress configuration.
