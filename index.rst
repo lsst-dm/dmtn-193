@@ -332,7 +332,7 @@ There will likely be other examples, with requests originating either from the N
 Applications such as the Portal Aspect that need to satisfy these requests therefore must reply to the ``OPTIONS`` request sent as the CORS preflight check.
 This request should not be blindly successful.
 Rather, the application must check the ``Origin`` header to see if it matches the expected pattern of allowed origin, such as the pattern of a Notebook Aspect user notebook origin from the same Rubin Science Platform instance.
-If so, it must respond with success, coping the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
+If so, it must respond with success, copying the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
 If the origin doesn't match a Notebook Aspect user notebook origin from the same instance, it should reply with an error.
 
 Similarly, when replying to the subsequent actual request, the Portal Aspect must include ``Access-Control-Allow-Credentials: true`` in the response headers.
