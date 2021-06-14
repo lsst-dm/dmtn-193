@@ -404,16 +404,21 @@ User-controlled content
 
 Services that return user-controlled content, such as files from a user's home directory, should set a maximally restrictive ``Content-Security-Policy`` on those responses and attempt to force the browser to download files rather than display them::
 
-    Content-Security-Policy: default-src 'none'; sandbox
+    Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'
     Content-Disposition: attachment
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: DENY
 
 This can be done either in the application or by the NGINX ingress configuration.
 The ``Content-Disposition`` header would ideally be added by the application so that it could add a suggested filename for the download.
 
+With these settings, ideally the service should serve content with an accurate ``Content-Type`` header.
+The settings should force download rather than display of the file regardless of the ``Content-Type``, but some operating systems may choose how the file is stored based on the ``Content-Type`` and this configuration disables content sniffing (dynamically determining the type of file from its extension or contents).
+
 Implementation status
 =====================
 
-**Last updated: June 11, 2021**
+**Last updated: June 14, 2021**
 
 Implemented:
 
@@ -434,4 +439,4 @@ Not yet implemented:
 - Restrict content type of ``POST`` requests
 - Cross-site security configuration for Notebook to Portal Aspect calls
 - Adding ``Content-Security-Policy`` headers via the ingress
-- Adding ``Content-Security-Policy`` and ``Content-Disposition`` headers to any endpoint that returns raw user-controlled content.
+- Adding additional headers to any endpoint that returns raw user-controlled content.
