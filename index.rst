@@ -402,11 +402,13 @@ For those applications, we will add a ``Content-Security-Policy`` header to all 
 User-controlled content
 -----------------------
 
-Services that return user-controlled content, such as files from a user's home directory, should set a maximally restrictive ``Content-Security-Policy`` on those responses::
+Services that return user-controlled content, such as files from a user's home directory, should set a maximally restrictive ``Content-Security-Policy`` on those responses and attempt to force the browser to download files rather than display them::
 
     Content-Security-Policy: default-src 'none'; sandbox
+    Content-Disposition: attachment
 
 This can be done either in the application or by the NGINX ingress configuration.
+The ``Content-Disposition`` header would ideally be added by the application so that it could add a suggested filename for the download.
 
 Implementation status
 =====================
@@ -432,4 +434,4 @@ Not yet implemented:
 - Restrict content type of ``POST`` requests
 - Cross-site security configuration for Notebook to Portal Aspect calls
 - Adding ``Content-Security-Policy`` headers via the ingress
-- Adding ``Content-Seucrity-Policy`` headers to any endpoint that returns raw user-controlled content.
+- Adding ``Content-Security-Policy`` and ``Content-Disposition`` headers to any endpoint that returns raw user-controlled content.
