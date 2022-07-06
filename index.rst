@@ -268,7 +268,7 @@ See `Cross-Origin Resource Sharing on MDN`_ for a good high-level summary and th
 
 In most cases, the Rubin Science Platform does not need to support cross-origin requests.
 When different components need to talk to each other, those requests are normally made by the server, not by JavaScript executed in the web browser.
-Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in :ref:`notebook-portal`.
+Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in :ref:`cors`.
 
 Application design
 ------------------
