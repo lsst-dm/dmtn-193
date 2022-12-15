@@ -422,7 +422,7 @@ Implemented:
 - Credential isolation for ``Cookie`` or ``Authorization`` headers
 - Dropping ``Authorization`` headers for unauthenticated routes
 - Dropping or rewriting ``Cookie`` headers for unauthenticated routes
-- ``Ingress`` configuration via a custom resource and controller
+- ``Ingress`` configuration via a custom resource and operator
 
 Not yet implemented:
 
