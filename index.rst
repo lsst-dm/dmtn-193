@@ -18,6 +18,8 @@ The term can encompass any aspect of the security of an application accessible v
 This document will focus specifically on aspects of security unique to web applications accessible via a web browser or an HTTP-based API (such as REST).
 In scope:
 
+.. rst-class:: compact
+
 - Cross-site request forgery (CSRF)
 - Cross-site scripting (XSS)
 - Authentication of users using a web browser
@@ -25,26 +27,28 @@ In scope:
 - Theft or exposure of authentication credentials
 
 These are the areas of web security that can be at least partly addressed by a centralized authentication and security layer.
-(For the Rubin Science Platform, that layer is provided by `Gafaelfawr`_ plus an NGINX ingress controller.)
+(For the Rubin Science Platform, that layer is provided by Gafaelfawr_ plus an NGINX ingress controller.)
 
 .. _Gafaelfawr: https://gafaelfawr.lsst.io/
 
 Traditionally part of web security, but out of scope for this document, are security problems specific to an application's development process or handling of user input that are difficult to address with a security layer.
 Those out-of-scope topics include:
 
+.. rst-class:: compact
+
 - SQL injection
 - Arbitrary code execution for authenticated users
 - Other user input handling errors, such as insecure deserialization
-- Vulnerability management and third-party dependencies (see `SQR-042`_ for some discussion)
+- Vulnerability management and third-party dependencies (see :sqr:`042` for some discussion)
 - Logging and monitoring
-
-.. _SQR-042: https://sqr-042.lsst.io/
 
 However, the narrow topic of protecting web access to applications within the Rubin Science Platform from a compromise of a single Science Platform application is in scope insofar as it can be addressed through good credential management practices and effective use of separate JavaScript origins.
 
 The Rubin Science Platform is different than most web applications in that it intentionally offers its users remote code execution as a service via the Notebook Aspect.
 Authenticated users are therefore expected to have considerable latitude in what actions they can perform.
 The focus of this discussion is therefore on:
+
+.. rst-class:: compact
 
 - Preventing unauthenticated access
 - Preventing credential theft or hijacking (such as via CSRF)
@@ -68,6 +72,8 @@ Threat model
 
 The expected goals of an attacker targeting the Science Platform are primarily the standard goals for general Internet attackers:
 
+.. rst-class:: compact
+
 - Theft of compute resources (Bitcoin mining, bot networks)
 - Extortion via ransomware (CryptoLocker)
 - Web site hosting for further phishing or malware distribution
@@ -87,34 +93,29 @@ Therefore, we do not want to treat all applications contained in the Rubin Scien
 
 The implication for web security is to focus efforts on providing a robust authentication layer, trust domain isolation between applications, and protection against typical XSS and CSRF attacks that an attacker might easily discover with an automated tool.
 
-For considerably more discussion of the threat model, see `SQR-041`_.
-
-.. _SQR-041: https://sqr-041.lsst.io/
+For considerably more discussion of the threat model, see :sqr:`041`.
 
 Authentication
 ==============
 
 The Rubin Science Platform uses opaque bearer tokens for authentication.
 Each token is associated with a list of scopes, which restrict what services that token can be used to access.
-See `SQR-044`_ for the identity management requirements, including access tokens, and `SQR-049`_ for the token system design.
-`SQR-039`_ has some additional history and discussion.
-
-.. _SQR-044: https://sqr-044.lsst.io/
-.. _SQR-049: https://sqr-049.lsst.io/
-.. _SQR-039: https://sqr-039.lsst.io/
+See :dmtn:`234` for the full identity management design.
 
 As much as possible, authentication for applications in the Rubin Science Platform will be handled at the ingress layer of Kubernetes, before the external request reaches the application.
 The underlying application can then be authentication-agnostic (if it doesn't need to make internal API calls on behalf of the user and doesn't need the user's identity), or can have a very simple authentication layer where it trusts user metadata and tokens that are passed to it in HTTP headers.
 
-`Gafaelfawr`_ implements this authentication layer and supports passing user metadata and delegated access tokens to applications via HTTP headers.
+Gafaelfawr_ implements this authentication layer and supports passing user metadata and delegated access tokens to applications via HTTP headers.
 
 Access control
 --------------
 
 Access control is done by scope.
 Each meaningful domain of access must be assigned a unique scope in the configuration of the authentication system.
-This needs to capture not only the granularity of user access permissions (for example, whether a given user is allowed to access a specific application), but also the granularity of service-to-service API calls.
-Restricting the scope of delegated tokens passed to applications limits the damage that can be done by a compromised application.
+See :dmtn:`235` for more information about scopes.
+
+Applications that need to make service-to-service calls on behalf of the user are given delegated tokens with their scopes restricted to only those scopes required by the application.
+This limits the damage that can be done by a compromised application.
 
 Credential isolation
 --------------------
@@ -124,28 +125,17 @@ Because the underlying application should not be fully trusted, we do not want t
 The incoming authentication credential must be filtered out of the request before it is passed to the backend service.
 
 For backend services that need to make calls on behalf of the user, a new token specific to that service will be issued dynamically, with only the scopes that service needs, and passed to the service via an HTTP header.
+This is done by replacing the ``Cookie`` header with a rewritten header, removing authentication cookies, and replacing or dropping the ``Authorization`` header.
 
-For options on how to implement this, and some further discussion, see `SQR-051`_.
-The recommended approach is to filter out incoming cookies by replacing the ``Cookie`` header with a rewritten header and replacing or dropping the ``Authorization`` header.
-
-.. _SQR-051: https://sqr-051.lsst.io/
+For more discussion, see :sqr:`051`.
 
 Unauthenticated and optionally authenticated routes
 ---------------------------------------------------
 
 Some services will want to expose unauthenticated routes.
 Virtual Observatory status routes, for example, do not require authentication.
-Such routes can use an ``Ingress`` configuration that bypasses the generic authentication layer, but should still prevent user credentials from being passed to the backend service if they are called by an authenticated user.
-In the simple case, this can be done by dropping the ``Cookie`` and ``Authorization`` headers in the ``Ingress`` using the following annotation:
-
-.. code-block:: yaml
-
-   nginx.ingress.kubernetes.io/configuration-snippet: |
-     proxy_set_header Authorization "";
-     proxy_set_header Cookie "";
-
-If the unauthenticated backend uses cookies for some other purpose, this becomes more complex, since only the authentication cookie should be stripped.
-If we have this use case, we will implement an unauthenticated mode for the generic authentication service that allows all requests but still performs ``Cookie`` header rewriting.
+Such routes can use an configuration that bypasses the generic authentication layer, but should still prevent user credentials from being passed to the backend service if they are called by an authenticated user.
+This should be done by applying the same header filtering rules as authenticated routes.
 
 Currently, the generic authentication layer does not support optionally authenticated routes: ones where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
 This can be added if that use case arises.
@@ -164,10 +154,11 @@ Annotations on that resource are read by the NGINX ingress controller and used t
 
 The necessary configuration can be fairly complex, including:
 
+.. rst-class:: compact
+
 - The required scopes to allow access
 - Whether to create a delegated token for this user
 - The scopes of the delegated token, if created
-- Whether this is the notebook service (which requires some special token handling)
 - Where (and if) to redirect the user to authenticate if they are not authenticated
 - If not redirecting the user, whether to present a bearer challenge or a basic auth challenge (the UI of some applications may prefer a basic auth challenge to make ad hoc API calls via a web browser easier)
 - Which user metadata headers to send to the application
@@ -178,8 +169,8 @@ The necessary configuration can be fairly complex, including:
 
 This can all be managed with manually-written NGINX ingress annotations with each service, with many of the parameters embedded in the ``auth-url`` URL, but this is tedious and error-prone.
 
-We therefore plan to implement a custom Kubernetes resource that specifies a Gafaelfawr-protected resource, and a custom resource controller that writes the ``Ingress`` resource based on that custom resource.
-This will allow the above information to be expressed in more human-readable YAML or derived from the cluster Gafaelfawr configuration.
+Gafaelfawr therefore includes a Kubernetes operator that uses a custom ``GafaelfawrIngress`` resource to generate ``Ingress`` resources.
+This allows the complex web security configuration to be expressed in a more human-friendly form, and allows Gafaelfawr to automatically add security measures such as filtering ``Authorization`` and ``Cookie`` headers.
 
 Isolation
 =========
@@ -202,6 +193,8 @@ Having all Science Platform REST APIs share the same origin is useful for docume
 
 Therefore, the isolation plan for the Rubin Science Platform is:
 
+.. rst-class:: compact
+
 - Serve the Notebook Aspect spawning interface from its own origin
 - Serve each user's notebook from a per-user origin (see :ref:`jupyterlab-origin`)
 - Serve the Portal Aspect from its own origin
@@ -217,7 +210,7 @@ No JavaScript will run from that origin, so there is no risk of same-origin atta
 We will hide incoming credentials from the backend servers and disable cookie authentication to such APIs, so there is also no need to put them in separate origins for credential management purposes.
 
 This approach will require some additional complexity in the authentication process to transfer cookie-based web browser credentials from one origin to another.
-See `SQR-051`_ for additional details.
+See :sqr:`051` for additional details.
 
 .. _jupyterlab-origin:
 
@@ -418,20 +411,24 @@ The settings should force download rather than display of the file regardless of
 Implementation status
 =====================
 
-**Last updated: June 14, 2021**
+**Last updated: December 15, 2022**
 
 Implemented:
 
+.. rst-class:: compact
+
 - Scope-based access control via a generic authentication service
 - Logging of all authenticated access
-
-Not yet implemented:
-
 - Credential isolation for ``Cookie`` or ``Authorization`` headers
 - Dropping ``Authorization`` headers for unauthenticated routes
 - Dropping or rewriting ``Cookie`` headers for unauthenticated routes
-- Support for optionally-authenticated routes
 - ``Ingress`` configuration via a custom resource and controller
+
+Not yet implemented:
+
+.. rst-class:: compact
+
+- Support for optionally-authenticated routes
 - Separation of Science Platform applications into their own origins
 - Per-user origins for Notebook Aspect user notebooks
 - Configuration specifying whether to allow cookie authentication
