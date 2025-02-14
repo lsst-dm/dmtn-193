@@ -1,14 +1,13 @@
-:tocdepth: 1
+#####################################
+Web security for the Science Platform
+#####################################
 
-.. sectnum::
+.. abstract::
 
-Abstract
-========
-
-The Rubin Science Platform consists of a set of services accessed via HTTP with a shared authentication and security layer.
-The underlying applications will come from various sources and be written by teams with varying levels of knowledge of web security defenses.
-It also includes the Notebook Aspect, which is arbitrary code execution as a service and thus poses unique security challenges.
-This document proposes a threat model for thinking about web security for the Rubin Science Platform as a whole and discusses design approaches and mitigations to maximize the effective security of the overall platform without assuming detailed security design of each component.
+   The Rubin Science Platform consists of a set of services accessed via HTTP with a shared authentication and security layer.
+   The underlying applications will come from various sources and be written by teams with varying levels of knowledge of web security defenses.
+   It also includes the Notebook Aspect, which is arbitrary code execution as a service and thus poses unique security challenges.
+   This document proposes a threat model for thinking about web security for the Rubin Science Platform as a whole and discusses design approaches and mitigations to maximize the effective security of the overall platform without assuming detailed security design of each component.
 
 Definitions and scope
 =====================
@@ -27,7 +26,8 @@ In scope:
 - Theft or exposure of authentication credentials
 
 These are the areas of web security that can be at least partly addressed by a centralized authentication and security layer.
-(For the Rubin Science Platform, that layer is provided by Gafaelfawr_ plus an NGINX ingress controller.)
+For the Rubin Science Platform, that layer is provided by Gafaelfawr_ plus an NGINX ingress controller.
+For more details on the authentication and authorization system, see :dmtn:`234` and its associated documents.
 
 .. _Gafaelfawr: https://gafaelfawr.lsst.io/
 
@@ -79,7 +79,7 @@ The expected goals of an attacker targeting the Science Platform are primarily t
 - Web site hosting for further phishing or malware distribution
 - Theft of valuable personal data (of which there is very little on the Rubin Science Platform)
 
-The observatory data accessible via the Science Platform, while not all public, is of limited financial or strategic value to sophisticated attackers.
+The observatory data accessible via the Science Platform, although not necessarily public, is of limited financial or strategic value to sophisticated attackers.
 While the Science Platform will hold some limited personal information for its users, it will not contain stores of valuable personal or commercial data.
 Unpublished astronomical research, while confidential, does not have the same appeal to attackers.
 Therefore, targeted attacks by sophisticated attackers looking for data of monetary or political value are unlikely.
@@ -91,7 +91,7 @@ We therefore expect incidents where the account of a legitimate user of the Rubi
 The individual applications that make up the Rubin Science Platform will be written by a variety of people and institutions with varying levels of attention to security.
 Therefore, we do not want to treat all applications contained in the Rubin Science Platform as equally trustworthy.
 
-The implication for web security is to focus efforts on providing a robust authentication layer, trust domain isolation between applications, and protection against typical XSS and CSRF attacks that an attacker might easily discover with an automated tool.
+Web security efforts will therefore focus on providing a robust authentication layer, trust domain isolation between applications, and protection against typical XSS and CSRF attacks that an attacker might easily discover with an automated tool.
 
 For considerably more discussion of the threat model, see :sqr:`041`.
 
@@ -103,19 +103,23 @@ Each token is associated with a list of scopes, which restrict what services tha
 See :dmtn:`234` for the full identity management design.
 
 As much as possible, authentication for applications in the Rubin Science Platform will be handled at the ingress layer of Kubernetes, before the external request reaches the application.
-The underlying application can then be authentication-agnostic (if it doesn't need to make internal API calls on behalf of the user and doesn't need the user's identity), or can have a very simple authentication layer where it trusts user metadata and tokens that are passed to it in HTTP headers.
+The underlying application can then be authentication-agnostic if it doesn't need to make internal API calls on behalf of the user and doesn't need the user's identity.
+Even in those cases, it can have a very simple authentication layer where it trusts user metadata and tokens that are passed to it in HTTP headers.
 
 Gafaelfawr_ implements this authentication layer and supports passing user metadata and delegated access tokens to applications via HTTP headers.
 
 Access control
 --------------
 
-Access control is done by scope.
-Each meaningful domain of access must be assigned a unique scope in the configuration of the authentication system.
+Access control is done primarily by scope.
+Each top-level meaningful domain of access must be assigned a unique scope in the configuration of the authentication system.
 See :dmtn:`235` for more information about scopes.
 
 Applications that need to make service-to-service calls on behalf of the user are given delegated tokens with their scopes restricted to only those scopes required by the application.
 This limits the damage that can be done by a compromised application.
+
+Applications that need to make more fine-grained authorization decisions, such as whether a given user can read or write a specific piece of data managed by the application, will use group membership to make those decisions.
+Group membership will be managed centrally and provided via API to applications, but access control decisions based on group membership are handled separately within each application.
 
 Credential isolation
 --------------------
@@ -127,7 +131,7 @@ The incoming authentication credential must be filtered out of the request befor
 For backend services that need to make calls on behalf of the user, a new token specific to that service will be issued dynamically, with only the scopes that service needs, and passed to the service via an HTTP header.
 This is done by replacing the ``Cookie`` header with a rewritten header, removing authentication cookies, and replacing or dropping the ``Authorization`` header.
 
-For more discussion, see :sqr:`051`.
+For more discussion, see :dmtn:`224`.
 
 Unauthenticated and optionally authenticated routes
 ---------------------------------------------------
@@ -135,9 +139,11 @@ Unauthenticated and optionally authenticated routes
 Some services will want to expose unauthenticated routes.
 Virtual Observatory status routes, for example, do not require authentication.
 Such routes can use an configuration that bypasses the generic authentication layer, but should still prevent user credentials from being passed to the backend service if they are called by an authenticated user.
-This should be done by applying the same header filtering rules as authenticated routes.
 
-Currently, the generic authentication layer does not support optionally authenticated routes: ones where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
+This is implemented in Gafaelfawr_ as anonymous ingresses.
+These are handled the same as a generic Kubernetes ``Ingress`` except that Gafaelfawr is still invoked for each incoming request to remove any tokens from the ``Cookie`` and ``Authorization`` headers.
+
+Currently, Gafaelfawr does not support optionally authenticated routes: ones where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
 This can be added if that use case arises.
 
 Logging
@@ -188,7 +194,7 @@ The easiest way to do this is to give every application a separate origin, usual
 In the case of the Science Platform, this would mean assigning a separate hostname to every application, and then using either multiple TLS certificates, a wildcard TLS certificate, or a TLS certificate with multiple :abbr:`SANs (Subject Alternative Names)`.
 
 However, separate origins are only crucial for web applications that run JavaScript in the browser.
-REST API endpoints can safely share the same origin provided that they do not need to support cross-origin requests, do not serve pages or JavaScript that run in a web browser, and do not share an origin with a web application that does so.
+REST API endpoints can safely share the same origin provided that they do not need to support cross-origin requests, do not serve HTML or JavaScript that runs in a web browser, and do not share an origin with a web application that does so.
 Having all Science Platform REST APIs share the same origin is useful for documentation purposes and allows more flexibility about which API endpoints are served by which backend implementations.
 
 Therefore, the isolation plan for the Rubin Science Platform is:
@@ -209,7 +215,7 @@ This is true even if some of the API backend servers are untrusted.
 No JavaScript will run from that origin, so there is no risk of same-origin attacks even between untrusted API backend servers.
 We will hide incoming credentials from the backend servers and disable cookie authentication to such APIs, so there is also no need to put them in separate origins for credential management purposes.
 
-This approach will require some additional complexity in the authentication process to transfer cookie-based web browser credentials from one origin to another.
+This approach will require some additional work in Gafaelfawr_.
 See :sqr:`051` for additional details.
 
 .. _jupyterlab-origin:
@@ -245,6 +251,8 @@ Here is a brief and incomplete summary of the rules:
 
 #. Requests to a different origin will trigger a CORS preflight check *unless* all of the following conditions are true (plus some other, less relevant ones):
 
+   .. rst-class:: compact
+
    - The request is a ``GET``, ``HEAD``, or ``POST``
    - The request does not send headers other than ``Accept``, ``Accept-Language``, ``Content-Language``, and ``Content-Type``
    - The ``Content-Type`` header, if set, is one of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
@@ -273,11 +281,11 @@ Applications must follow the standard web application conventions of using appro
 In particular, ``GET`` must be reserved for read-only requests, and all requests that modify data or otherwise change state must use ``POST`` or another appropriate verb.
 
 Unless required by a protocol that the application needs to implement, only applications intended for use via a web browser should accept ``POST`` with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
-APIs should instead require the body of a ``POST`` have a declared content type of ``application/json``, ``text/xml``, or some other value.
+APIs should instead require the body of a ``POST`` have a declared content type of ``application/json``, ``application/xml``, or some other value.
 (In other words, the typical REST API should require JSON or XML request bodies and not support form-encoded request bodies.)
 This forces a CORS preflight check for cross-origin ``POST`` requests, avoiding the problem where a ``POST`` from malicious JavaScript is sent with credentials and has an effect on the server even though the response is discarded by the web browser.
 
-Applications designed for use with a web browser that accept form submissions should use normal CSRF prevention techniques, such as the `synchronizer token pattern`_:
+Applications designed for use with a web browser that accept form submissions should use normal CSRF prevention techniques, such as the `synchronizer token pattern`_.
 
 .. _synchronizer token pattern: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#synchronizer-token-pattern
 
@@ -411,7 +419,7 @@ The settings should force download rather than display of the file regardless of
 Implementation status
 =====================
 
-**Last updated: December 15, 2022**
+**Last updated: February 13, 2025**
 
 Implemented:
 
