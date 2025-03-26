@@ -91,7 +91,7 @@ We therefore expect incidents where the account of a legitimate user of the Rubi
 The individual applications that make up the Rubin Science Platform will be written by a variety of people and institutions with varying levels of attention to security.
 Therefore, we do not want to treat all applications contained in the Rubin Science Platform as equally trustworthy.
 
-Web security efforts will therefore focus on providing a robust authentication layer, trust domain isolation between applications, and protection against typical XSS and CSRF attacks that an attacker might easily discover with an automated tool.
+Web security efforts will therefore focus on providing a robust authentication layer, origin isolation between applications, and protection against typical XSS and CSRF attacks that an attacker might easily discover with an automated tool.
 
 For considerably more discussion of the threat model, see :sqr:`041`.
 
@@ -143,8 +143,9 @@ Such routes can use an configuration that bypasses the generic authentication la
 This is implemented in Gafaelfawr_ as anonymous ingresses.
 These are handled the same as a generic Kubernetes ``Ingress`` except that Gafaelfawr is still invoked for each incoming request to remove any tokens from the ``Cookie`` and ``Authorization`` headers.
 
-Currently, Gafaelfawr does not support optionally authenticated routes: ones where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
-This can be added if that use case arises.
+Currently, Gafaelfawr does not support optionally-authenticated routes.
+These are routes where authentication information should be provided to the application if present, but access should be allowed even if the user is not authenticated.
+This may be added if that use case arises.
 
 Logging
 -------
@@ -191,9 +192,9 @@ The effect of this security model is that it is not possible to secure web appli
 To isolate one web application from another, they must run in separate origins.
 
 The easiest way to do this is to give every application a separate origin, usually by changing the hostname.
-In the case of the Science Platform, this would mean assigning a separate hostname to every application, and then using either multiple TLS certificates, a wildcard TLS certificate, or a TLS certificate with multiple :abbr:`SANs (Subject Alternative Names)`.
+In the case of the Science Platform, this means assigning a separate hostname to every application, and then using either multiple TLS certificates, a wildcard TLS certificate, or a TLS certificate with multiple :abbr:`SANs (Subject Alternative Names)`.
 
-However, separate origins are only crucial for web applications that run JavaScript in the browser.
+Separate origins are only crucial for web applications that run JavaScript in the browser.
 REST API endpoints can safely share the same origin provided that they do not need to support cross-origin requests, do not serve HTML or JavaScript that runs in a web browser, and do not share an origin with a web application that does so.
 Having all Science Platform REST APIs share the same origin is useful for documentation purposes and allows more flexibility about which API endpoints are served by which backend implementations.
 
@@ -202,7 +203,7 @@ Therefore, the isolation plan for the Rubin Science Platform is:
 .. rst-class:: compact
 
 - Serve the Notebook Aspect spawning interface from its own origin
-- Serve each user's notebook from a per-user origin (see :ref:`jupyterlab-origin`)
+- Serve each user's notebook from a per-user origin distinct from either that origin or any other application (see :ref:`jupyterlab-origin`)
 - Serve the Portal Aspect from its own origin
 - Serve the authentication system from its own origin
 - Serve APIs that may return raw user-controlled content (such as a service for users to retrieve files from their home directory) from their own origins.
@@ -215,7 +216,6 @@ This is true even if some of the API backend servers are untrusted.
 No JavaScript will run from that origin, so there is no risk of same-origin attacks even between untrusted API backend servers.
 We will hide incoming credentials from the backend servers and disable cookie authentication to such APIs, so there is also no need to put them in separate origins for credential management purposes.
 
-This approach will require some additional work in Gafaelfawr_.
 See :sqr:`051` for additional details.
 
 .. _jupyterlab-origin:
@@ -224,10 +224,11 @@ JupyterLab origins
 ------------------
 
 The web security documentation for JupyterHub recommends `using a separate subdomain for each user <https://jupyterhub.readthedocs.io/en/stable/reference/websecurity.html>`__.
-We will follow this recommendation.
+We will follow this recommendation using a wildcard certificate from Let's Encrypt, obtained via the DNS solver.
 
-This will require serving notebooks using a wildcard certificate.
-The plan is to use a wildcard certificate from Let's Encrypt, using the DNS solver to authenticate.
+For additional protection, Gafaelfawr only allows access to the user's server to a web browser presenting credentials for that user.
+This disables collaboration on a notebook but makes it harder to attack users via their notebook servers.
+We may relax this restriction if collaborative notebook access is found to be highly desirable.
 
 CSRF protection
 ===============
@@ -243,7 +244,7 @@ Summary of security model
 -------------------------
 
 The rules for what happens during JavaScript requests are very complex and have evolved over time.
-There are two parts to the security model: whether the browser will immediately send the request to the remote site or instead send an ``OPTIONS`` request first (this is called a *CORS preflight*), and whether the JavaScript initiating the request can see the response.
+There are two parts to the security model: whether the browser will immediately send the request to the remote site or instead send an ``OPTIONS`` request first (this is called *CORS preflight*), and whether the JavaScript initiating the request can see the response.
 Here is a brief and incomplete summary of the rules:
 
 #. All requests to the same origin are allowed and will not trigger a CORS preflight check.
@@ -269,20 +270,21 @@ See `Cross-Origin Resource Sharing on MDN`_ for a good high-level summary and th
 
 In most cases, the Rubin Science Platform does not need to support cross-origin requests.
 When different components need to talk to each other, those requests are normally made by the server, not by JavaScript executed in the web browser.
-Use of the Portal Aspect from the Notebook Aspect is the one exception and is discussed in :ref:`cors`.
+Use of the Portal Aspect from the Notebook Aspect is the primary exception and is discussed in :ref:`cors`.
 
 Application design
 ------------------
 
 Where possible, Rubin Science Platform applications should not support cross-origin requests.
-Doing so securely will require substantial additional effort, so if the same need can be met by making the request from the server using a delegated token, that approach is preferred.
+This is the safest default behavior.
+If the same need can be met by making the request from the server using a delegated token, that approach is preferred.
 
 Applications must follow the standard web application conventions of using appropriate HTTP verbs based on whether a request may change state.
 In particular, ``GET`` must be reserved for read-only requests, and all requests that modify data or otherwise change state must use ``POST`` or another appropriate verb.
 
 Unless required by a protocol that the application needs to implement, only applications intended for use via a web browser should accept ``POST`` with a ``Content-Type`` of ``application/x-www-form-urlencoded``, ``multipart/form-data``, or ``text/plain``.
 APIs should instead require the body of a ``POST`` have a declared content type of ``application/json``, ``application/xml``, or some other value.
-(In other words, the typical REST API should require JSON or XML request bodies and not support form-encoded request bodies.)
+In other words, the typical REST API should require JSON or XML request bodies and not support form-encoded request bodies.
 This forces a CORS preflight check for cross-origin ``POST`` requests, avoiding the problem where a ``POST`` from malicious JavaScript is sent with credentials and has an effect on the server even though the response is discarded by the web browser.
 
 Applications designed for use with a web browser that accept form submissions should use normal CSRF prevention techniques, such as the `synchronizer token pattern`_.
@@ -299,7 +301,11 @@ Authentication methods
 In general, users will authenticate to browser-based applications using a cookie and to APIs using an ``Authorization`` header.
 However, since the authentication layer is shared, it supports both authentication mechanisms.
 This can be useful for dual-purpose APIs used both via React browser UIs and via direct API calls, and for some cases where one may want to allow a service or other non-browser client to make authenticated requests to an application that is normally used within a web browser.
-However, it increases the risk of CSRF because including an ``Authorization`` header in a request always forces a CORS preflight check, but asking for cookies to be included does not.
+It is also useful to allow simple ``GET`` APIs to be directly accessed from a web browser, even if they would normally be used via a client, for quick debugging.
+
+However, allowing cookie authentication to APIs increases the risk of CSRF, particularly for ``GET`` APIs.
+Including an ``Authorization`` header in a request always forces a CORS preflight check, but asking for cookies to be included does not.
+Most possible attacks are prevented by other measures (browser hiding of authenticated responses from ``GET`` requests, and using a different content type for ``POST`` requests), but defense in depth is always desirable in web security given the complexity of the security model.
 
 Therefore, the authentication layer will support configuration indicating whether a given application should support cookie authentication.
 This can be disabled for pure APIs that aren't intended to be used via a JavaScript frontend.
@@ -307,12 +313,45 @@ When disabled, requests with cookies but no ``Authorization`` header will be den
 
 APIs that are also used by JavaScript frontends will continue to allow cookie-based authentication.
 
-``Origin`` header
------------------
+.. _cors:
 
-If cookie authentication is used, the authentication layer will check for an ``Origin`` header sent with the request and ignore cookie authentication if that header is present, not null, and does not match the origin of the requested URL.
+Cross-origin requests
+---------------------
+
+Some Rubin Science Platform applications may wish to provide APIs that can be used via JavaScript from other Science Platform applications.
+For example, the Notebook Aspect uses client-side JavaScript to display images from the Portal Aspect inside the Notebook Aspect UI.
+As described in :ref:`jupyterlab-origin`, each Notebook Aspect user instance will run in its own origin, so this is a cross-origin request.
+Since the origin for the Notebook Aspect is dynamic (based on the username), it's also a cross-origin request without a simple list of allowed origins, since the origin for the Notebook Aspect is dynamic (based on the username).
+There will likely be other examples, with requests originating either from the Notebook Aspect or from other Science Platform UIs such as the top-level page.
+
+At the same time, the Science Platform does not want to allow cross-origin requests from arbitrary sites, since this significantly increases the risk of CSRF attacks.
+Cross-origin requests from outside that instance of the Science Platform should be rejected.
+
+These requirements are met as follows:
+
+- Gafaelfawr will reject all CORS preflight requests that originate (per the ``Origin`` header) from outside the Science Platform.
+  CORS preflight requests from within the Science Platform will be passed to the underlying service to respond as it chooses.
+  By default, services should reject such requests as discussed above.
+
+- Applications such as the Portal Aspect that need to satisfy these requests therefore must reply successfully to the CORS preflight check if it comes from an expected component of the Science Platform.
+  If so, it must respond with success, copying the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
+
+  Ideally, applications should inspect the ``Origin`` header and ensure that it matches the expected pattern of origins, such as the pattern of a Notebook Aspect user notebook origin from the same Rubin Science Platform instance.
+  However, due to the above restriction implemented by Gafaelfawr, an application *may* blindly reflect any origin received via a CORS preflight request if it intends to allow cross-origin requests from anywhere within the Science Platform.
+
+  Similarly, when replying to the subsequent actual request, the application must include ``Access-Control-Allow-Credentials: true`` in the response headers.
+
+Unfortunately, the CORS preflight request cannot be handled entirely in the generic authentication layer because the NGINX ingress doesn't support intercepting and delegating ``OPTIONS`` requests.
+It cannot be done directly in the ingress because the NGINX ingress CORS support doesn't support dynamic validation of origins.
+It will therefore need to be done in the code of the application that serves cross-origin requests.
+
+``Origin`` header on other requests
+-----------------------------------
+
+If cookie authentication is used, the authentication layer will check for an ``Origin`` header sent with the request and ignore cookie authentication if that header is present, not null, and does not originate from within the Science Platform.
+
 The browser will add the ``Origin`` header automatically to cross-origin (and some same-origin) requests, and it cannot be disabled in JavaScript.
-This effectively disables cookie authentication for cross-site requests in browsers that support ``Origin``, although the above explicit configuration should also be used for defense in depth.
+This rule therefore effectively disables cookie authentication for cross-site requests in browsers that support ``Origin``, although the above explicit configuration should also be used for defense in depth.
 
 ``POST`` content type
 ---------------------
@@ -321,28 +360,6 @@ Applications that do not intend to support form submission do not need to accept
 We can therefore reject such requests at the generic authentication layer and prevent them from ever reaching the application.
 This relieves the application of having to check the ``Content-Type`` of the ``POST`` body and protects against overly-helpful framework libraries that may attempt to interpret ``POST`` bodies of the wrong content type.
 This will be an optional per-application configuration option.
-
-.. _cors:
-
-Internal cross-origin requests
-------------------------------
-
-Some Rubin Science Platform applications may wish to provide APIs that can be used via JavaScript from other Science Platform applications.
-For example, the Notebook Aspect uses client-side JavaScript to display images from the Portal Aspect inside the Notebook Aspect UI.
-As described in :ref:`jupyterlab-origin`, each Notebook Aspect user instance will run in its own origin, so this is a cross-origin request.
-Furthermore, it is a cross-origin request without a simple list of allowed origins, since the origin for the Notebook Aspect is dynamic (based on the username).
-There will likely be other examples, with requests originating either from the Notebook Aspect or from other Science Platform UIs such as the top-level page.
-
-Applications such as the Portal Aspect that need to satisfy these requests therefore must reply to the ``OPTIONS`` request sent as the CORS preflight check.
-This request should not be blindly successful.
-Rather, the application must check the ``Origin`` header to see if it matches the expected pattern of allowed origin, such as the pattern of a Notebook Aspect user notebook origin from the same Rubin Science Platform instance.
-If so, it must respond with success, copying the ``Origin`` value to the ``Access-Control-Allow-Origin`` response header and including ``Access-Control-Allow-Credentials: true`` in the response headers.
-If the origin doesn't match a Notebook Aspect user notebook origin from the same instance, it should reply with an error.
-
-Similarly, when replying to the subsequent actual request, the Portal Aspect must include ``Access-Control-Allow-Credentials: true`` in the response headers.
-
-Unfortunately, this cannot be done in the generic authentication layer because the NGINX ingress doesn't support intercepting and delegating ``OPTIONS`` requests, and it cannot be done directly in the ingress because the NGINX ingress CORS support doesn't support dynamic validation of origins.
-It will therefore need to be done in the code of the application that serves cross-origin requests.
 
 XSS protection
 ==============
@@ -419,7 +436,7 @@ The settings should force download rather than display of the file regardless of
 Implementation status
 =====================
 
-**Last updated: February 13, 2025**
+**Last updated: March 25, 2025**
 
 Implemented:
 
@@ -431,17 +448,18 @@ Implemented:
 - Dropping ``Authorization`` headers for unauthenticated routes
 - Dropping or rewriting ``Cookie`` headers for unauthenticated routes
 - ``Ingress`` configuration via a custom resource and operator
+- Restrict incoming CORS preflight requests to origins within the Science Platform
+- Per-user origins for Notebook Aspect user notebooks
+- Cross-site security configuration for Notebook to Portal Aspect calls
+- Configuration specifying whether to allow cookie authentication
 
 Not yet implemented:
 
 .. rst-class:: compact
 
 - Support for optionally-authenticated routes
-- Separation of Science Platform applications into their own origins
-- Per-user origins for Notebook Aspect user notebooks
-- Configuration specifying whether to allow cookie authentication
+- Separate other Science Platform applications into their own origins
 - Disable cookie authentication for cross-origin requests
 - Restrict content type of ``POST`` requests
-- Cross-site security configuration for Notebook to Portal Aspect calls
 - Adding ``Content-Security-Policy`` headers via the ingress
 - Adding additional headers to any endpoint that returns raw user-controlled content.
